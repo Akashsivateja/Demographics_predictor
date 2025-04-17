@@ -11,7 +11,8 @@ import traceback
 
 # --- Configuration ---
 IMG_SIZE = (224, 224)
-MODEL_FILENAME = "multi_output_demographics_model_best.h5" # Ensure this file is present
+# Assumes this file is in the same directory as app.py AND committed to GitHub
+MODEL_FILENAME = "multi_output_demographics_model_best.h5"
 EXPECTED_OUTPUTS = {
     'gender': 'classification',
     'age': 'regression',
@@ -23,22 +24,35 @@ CLASS_NAMES_GENDER = ['female', 'male']
 # --- Model Loading ---
 @st.cache_resource
 def load_keras_model(model_path):
-    """Loads the Keras model."""
+    """Loads the Keras model from the specified path."""
+    # Add check right at the beginning
+    st.write(f"Attempting to load model from path: {model_path}")
+    st.write(f"Does file exist at path? {os.path.exists(model_path)}")
     if not os.path.exists(model_path):
-        st.error(f"Model file not found: '{model_path}'")
+        # Try listing directory contents for debugging
+        try:
+            current_dir_files = os.listdir('.')
+            st.error(f"Model file not found: '{model_path}'. Files in current directory: {current_dir_files}")
+        except Exception as list_e:
+            st.error(f"Model file not found: '{model_path}'. Also failed to list directory contents: {list_e}")
         return None
+
     try:
-        model = load_model(model_path, compile=False) # Add compile=False for faster loading if not retraining
-        print(f"Model loaded: {model_path}")
-        # Optional: Verification (can be commented out after first successful run)
+        st.info("Loading model...")
+        # Use compile=False if not retraining/compiling further
+        model = load_model(model_path, compile=False)
+        st.success(f"Model '{model_path}' loaded successfully!") # Success message
+        # Optional: Verification
         # loaded_output_names = list(model.output_names)
         # expected_names = list(EXPECTED_OUTPUTS.keys())
         # if set(loaded_output_names) != set(expected_names):
         #     st.warning(f"Model output name mismatch! Expected: {expected_names}, Found: {loaded_output_names}")
         return model
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"Error loading Keras model from '{model_path}': {e}")
+        st.error("This might be due to version mismatch, file corruption, or resource limits.")
         print(f"Error loading model: {e}")
+        traceback.print_exc() # Print full traceback to logs
         return None
 
 # --- Image Preprocessing ---
@@ -83,7 +97,7 @@ if model is not None:
         if name in model.output_names: st.sidebar.markdown(f"- {name.capitalize()}")
         else: st.sidebar.markdown(f"- ~~{name.capitalize()}~~ (Not in model)")
 else:
-     st.sidebar.error("Model not loaded.")
+     st.sidebar.error("Model failed to load. Check app logs for details.") # Updated message
 st.sidebar.warning("Disclaimer: Predictions are estimates. Height/weight accuracy may be limited.")
 
 # Main area
@@ -94,7 +108,7 @@ with col1:
     uploaded_file = st.file_uploader("Choose image (jpg, jpeg, png)...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
         try:
-            # FIX 1: Use use_container_width instead of use_column_width
+            # Use use_container_width
             st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
         except Exception as e:
              st.error(f"Error displaying image: {e}")
@@ -104,7 +118,7 @@ with col2:
     results_placeholder = st.empty()
 
     if uploaded_file is not None:
-        if model is not None:
+        if model is not None: # Check if model was successfully loaded
             with st.spinner('Predicting...'):
                 try:
                     img_pil = Image.open(uploaded_file).convert('RGB')
@@ -126,18 +140,18 @@ with col2:
                                  continue
 
                             if task_type == 'classification' and output_name == 'gender':
-                                pred_prob = float(pred_value_raw) # Ensure standard float
+                                pred_prob = float(pred_value_raw)
                                 threshold = 0.5
                                 pred_class_index = int(pred_prob > threshold)
                                 pred_class_name = CLASS_NAMES_GENDER[pred_class_index] if pred_class_index < len(CLASS_NAMES_GENDER) else f"Class {pred_class_index}"
-                                confidence = float(pred_prob if pred_class_index == 1 else 1 - pred_prob) # Ensure standard float
+                                confidence = float(pred_prob if pred_class_index == 1 else 1 - pred_prob)
 
                                 results_container.metric(label="Predicted Gender", value=pred_class_name.capitalize())
-                                # FIX 2: Cast confidence to float for st.progress
+                                # Cast confidence to float for st.progress
                                 results_container.progress(float(confidence), text=f"{confidence:.1%} confidence")
 
                             elif task_type == 'regression':
-                                pred_value = float(pred_value_raw) # Ensure standard float
+                                pred_value = float(pred_value_raw)
                                 unit, label_text = "", f"Predicted {output_name.capitalize()}"
                                 if output_name == 'age': unit, label_text = "years", "Predicted Age"
                                 elif output_name == 'height': unit, label_text = "inches", "Predicted Height"
@@ -149,8 +163,8 @@ with col2:
                 except Exception as e:
                     results_placeholder.error(f"Prediction error: {e}")
                     print(f"Prediction loop error: {e}")
-                    traceback.print_exc()
+                    traceback.print_exc() # Print full traceback to logs
         else:
-            results_placeholder.error("Model not loaded.")
+            results_placeholder.error("Model not loaded. Cannot predict.") # Keep error specific
     else:
         results_placeholder.info("Upload an image.")
