@@ -1,6 +1,0 @@
-streamlit
-tensorflow  # Or tensorflow-cpu if GPU not needed/available for deployment
-Pillow
-numpy
-# Add pandas, matplotlib, seaborn, tqdm if needed by any utility functions,
-# but they are not strictly required for the core app above.
