@@ -1,6 +1,6 @@
 # app.py
 import streamlit as st
-import tensorflow as tf
+import tensorflow as tf  # Corrected import
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 # Ensure you use the correct preprocessing function matching your training
@@ -8,12 +8,14 @@ from tensorflow.keras.applications.resnet50 import preprocess_input
 from PIL import Image
 import numpy as np
 import os
+import traceback # Added for detailed error logging if needed
 
 # --- Configuration ---
 # Match these with your Colab training settings (Cell 6/7)
 IMG_SIZE = (224, 224)
 # --- IMPORTANT: Use the MULTI-OUTPUT model filename ---
-MODEL_FILENAME = "multi_output_demographics_model_best.h5" # Or the exact name you saved
+# Make sure this exact file exists in the same directory as app.py
+MODEL_FILENAME = "multi_output_demographics_model_best.h5"
 
 # Define the expected outputs and their types (must match model heads)
 EXPECTED_OUTPUTS = {
@@ -90,6 +92,7 @@ st.caption(f"Model input size: {IMG_SIZE}x{IMG_SIZE} pixels.")
 st.divider()
 
 # Load the model (will be cached after first run)
+# Place the model loading attempt early, so errors are shown quickly
 model = load_keras_model(MODEL_FILENAME)
 
 # Sidebar Information
@@ -100,12 +103,20 @@ st.sidebar.info(
     "Upload an image to see the predictions."
 )
 st.sidebar.header("Model Info")
-st.sidebar.markdown(f"**Model File:** `{MODEL_FILENAME}`")
-st.sidebar.markdown(f"**Input Size:** `{IMG_SIZE}`")
-st.sidebar.markdown("**Outputs:**")
-for name, type in EXPECTED_OUTPUTS.items():
-    st.sidebar.markdown(f"- {name.capitalize()} ({type})")
-st.sidebar.warning("Disclaimer: Predictions are estimates based on the training data and may not be fully accurate.")
+if model is not None:
+    st.sidebar.markdown(f"**Model File:** `{MODEL_FILENAME}`")
+    st.sidebar.markdown(f"**Input Size:** `{IMG_SIZE}`")
+    st.sidebar.markdown("**Outputs:**")
+    for name, type in EXPECTED_OUTPUTS.items():
+        # Check if the output actually exists in the loaded model before listing
+        if name in model.output_names:
+             st.sidebar.markdown(f"- {name.capitalize()} ({type})")
+        else:
+             st.sidebar.markdown(f"- ~~{name.capitalize()} ({type})~~ (Not in loaded model)")
+else:
+     st.sidebar.error("Model failed to load.")
+
+st.sidebar.warning("Disclaimer: Predictions are estimates based on the training data and may not be fully accurate, especially for height and weight derived solely from images.")
 
 
 # Main area for upload and results
@@ -115,7 +126,12 @@ with col1:
     st.subheader("Upload Image")
     uploaded_file = st.file_uploader("Choose an image file...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
-        st.image(uploaded_file, caption="Uploaded Image", use_column_width='always')
+        try:
+            # Display uploaded image safely
+            st.image(uploaded_file, caption="Uploaded Image", use_column_width='always')
+        except Exception as e:
+             st.error(f"Error displaying uploaded image: {e}")
+
 
 with col2:
     st.subheader("Prediction Results")
@@ -123,6 +139,7 @@ with col2:
 
     if uploaded_file is not None:
         if model is not None:
+            # Only proceed if model is loaded successfully
             with st.spinner('Analyzing image and predicting...'):
                 try:
                     # Open image using PIL, ensure RGB
@@ -145,7 +162,13 @@ with col2:
                                 continue
 
                             # Prediction value is usually [[value]] for single output heads
-                            pred_value_raw = prediction_dict[output_name][0][0]
+                            # Add checks for potential issues in prediction output format
+                            if isinstance(prediction_dict[output_name], np.ndarray) and prediction_dict[output_name].size > 0:
+                                 pred_value_raw = prediction_dict[output_name].flatten()[0] # Safely get first element
+                            else:
+                                 results_container.error(f"Unexpected prediction format for '{output_name}'.")
+                                 continue
+
 
                             # Format based on task type
                             if task_type == 'classification' and output_name == 'gender':
@@ -172,14 +195,15 @@ with col2:
                         st.divider() # Add a visual separator after results
 
                     else:
-                        results_placeholder.error("Image could not be preprocessed.")
+                        # Error message already shown by preprocess_image_streamlit
+                        # results_placeholder.error("Image could not be preprocessed.")
+                        pass # Avoid duplicating error messages
 
                 except Exception as e:
-                    results_placeholder.error(f"An error occurred during prediction: {e}")
+                    results_placeholder.error(f"An critical error occurred during prediction: {e}")
                     print(f"Prediction loop error: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    traceback.print_exc() # Print detailed error to console/logs
         else:
-            results_placeholder.error("Model is not loaded. Cannot make predictions.")
+            results_placeholder.error("Model is not loaded. Cannot make predictions. Check model file path and loading logs.")
     else:
-        results_placeholder.info("Upload an image to see the predictions.")
+        results_placeholder.info("Upload an image using the button on the left to see the predictions.")
